@@ -1,0 +1,53 @@
+[package]
+name = "svc_music_player"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "svc_music_player"
+path = "src/lib.rs"
+
+[[bin]]
+name = "svc_music_player"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+tokio-util = "0.7"
+
+# Cryptography (AES-128-GCM for Simple Voice Chat)
+aes-gcm = "0.10"
+rand = "0.8"
+
+# Data, Serialization & Formatting
+uuid = { version = "1.10", features = ["v4", "serde"] }
+byteorder = "1.5"
+bytes = "1.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+encoding_rs = "0.8"
+
+# Minecraft Client (Azalea 0.16)
+azalea = "0.16.0"
+azalea-client = "0.16.0"
+azalea-chat = "0.16.0"
+azalea-crypto = "0.16.0"
+azalea-protocol = "0.16.0"
+azalea-buf = "0.16.0"
+
+# Audio decoding & encoding
+rusty-opus = "0.9"
+symphonia = { version = "0.5", features = ["all"] }
+
+# HTTP & Web console
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "blocking"] }
+axum = { version = "0.7", features = ["ws"] }
+rust-embed = "8.5"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"

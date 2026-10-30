@@ -1,0 +1,8 @@
+/target
+/target*
+/dist
+/bin
+/cache
+*.old
+playlist.json
+config.toml

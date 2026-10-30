@@ -1,0 +1,76 @@
+[minecraft]
+# Minecraft 服务器地址与端口
+server_host = "127.0.0.1"
+server_port = 25565
+
+# 假人游戏内名称（离线模式生效）
+bot_name = "VoicePlayer"
+
+# 认证类型: 
+# - "offline": 离线模式
+# - "microsoft": 微软官方正版登录 (OAuth)
+# - "yggdrasil": 第三方外置登录 (authlib-injector / Blessing Skin / LittleSkin)
+auth_type = "offline"
+
+# 兼容旧版配置项 (若 auth_type 未填写，则根据 online_mode 决定)
+online_mode = false
+microsoft_email = ""
+
+# 第三方外置登录配置 (auth_type = "yggdrasil" 时生效)
+# Yggdrasil 认证服务器 URL（例如 LittleSkin: https://littleskin.cn/api/yggdrasil）
+yggdrasil_server = ""
+# 登录账号（邮箱或用户名）
+yggdrasil_account = ""
+# 登录密码（若下方填写了 access_token 则无需填写密码）
+yggdrasil_password = ""
+# 可选：直接使用已有 access_token 与角色 UUID 登录（避免在配置文件存储明文密码）
+yggdrasil_access_token = ""
+yggdrasil_profile_uuid = ""
+# 可选：当账号下存在多个角色名时，指定使用的角色名称
+yggdrasil_character_name = ""
+
+# Simple Voice Chat 协议版本号 (SVC 2.6.x 默认为 20)
+compatibility_version = 20
+
+[voice]
+# 强制覆盖语音服务器 IP 与端口（留空/0 则自动从服务端下发的 voicechat:secret 获取）
+override_host = ""
+override_port = 0
+# Opus 音频推流码率 (单位: kbps，默认 96 kbps；推荐 64~160 kbps，单声道音乐推荐 96 或 128)
+bitrate_kbps = 96
+
+[voice.group]
+# 是否在进服时自动创建或加入 SVC 语音群组（进群后全服群成员无视距离与维度收听）
+enabled = true
+# 目标群组名称（若不存在则自动创建，若已存在则直接加入）
+name = "Music"
+# 群组类型: "open" (开放群组，身边非群员也能听到), "normal" (普通群组), "isolated" (私密隔离群组)
+group_type = "open"
+# 群组密码（留空表示无密码公开群组）
+password = ""
+
+[media]
+# 若未找到 ffmpeg 或 yt-dlp，是否自动尝试从 GitHub Release 下载预编译版本
+auto_download_tools = true
+
+# 工具存放与缓存目录
+bin_dir = "./bin"
+
+# 自定义指定路径（留空则优先检查 bin_dir，再检查系统 PATH）
+ffmpeg_path = ""
+ytdlp_path = ""
+
+[control]
+# 游戏内聊天指令前缀
+command_prefix = "!"
+
+# 管理员玩家名称列表（留空表示所有玩家均可使用 !skip, !stop, !vol）
+admin_players = []
+
+# 是否在收到玩家 TPA 传送请求时自动同意（CMI 插件支持，默认 true）
+auto_tpaccept = true
+
+[web]
+# 是否启用内嵌网页控制台
+enabled = true
+bind_address = "127.0.0.1:8080"

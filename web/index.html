@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVCMusicPlayer-rs 控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0f172a',
+                        cardbg: '#1e293b',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-darkbg text-slate-100 min-h-screen font-sans antialiased">
+    <div class="max-w-4xl mx-auto px-4 py-8">
+        <!-- 头部 -->
+        <header class="flex items-center justify-between border-b border-slate-700/60 pb-5 mb-8">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white">SVCMusicPlayer-rs</h1>
+                    <p class="text-xs text-slate-400">Simple Voice Chat 独立语音伴播控制台</p>
+                </div>
+            </div>
+            <!-- 状态标签 -->
+            <div class="flex items-center space-x-3 text-xs">
+                <span id="mc-status" class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 flex items-center space-x-1.5">
+                    <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+                    <span>MC: 连接中</span>
+                </span>
+                <span id="voice-status" class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 flex items-center space-x-1.5">
+                    <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+                    <span>SVC: 未握手</span>
+                </span>
+            </div>
+        </header>
+
+        <!-- 播放器主卡片 -->
+        <div class="bg-cardbg border border-slate-700/50 rounded-2xl p-6 shadow-xl mb-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <!-- 曲目信息 -->
+                <div class="flex items-center space-x-4">
+                    <div id="cover-art" class="w-16 h-16 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-500">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span id="play-badge" class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400">空闲</span>
+                            <span id="bitrate-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-medium bg-blue-950 text-blue-400 border border-blue-800/50">0 kbps</span>
+                            <h2 id="current-title" class="text-base font-semibold text-white truncate max-w-xs md:max-w-md">当前未播放曲目</h2>
+                        </div>
+                        <p id="current-source" class="text-xs text-slate-400 truncate max-w-xs md:max-w-md mt-1">在下方输入链接点歌，或在游戏公屏发送 !play</p>
+                    </div>
+                </div>
+
+                <!-- 播控按钮 -->
+                <div class="flex items-center space-x-2">
+                    <button onclick="sendControl('resume')" title="继续" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                    </button>
+                    <button onclick="sendControl('pause')" title="暂停" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                    </button>
+                    <button onclick="sendControl('stop')" title="停止" class="p-3 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 音量控制 -->
+            <div class="mt-6 pt-5 border-t border-slate-700/40 flex items-center space-x-4">
+                <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                <div class="flex-1">
+                    <input id="volume-slider" type="range" min="0" max="100" value="80" oninput="onVolumeChange(this.value)" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <span id="volume-label" class="text-xs font-mono text-slate-300 w-10 text-right">80%</span>
+            </div>
+        </div>
+
+        <!-- 点歌提交输入卡片 -->
+        <div class="bg-cardbg border border-slate-700/50 rounded-2xl p-6 shadow-xl mb-6">
+            <h3 class="text-sm font-semibold text-slate-200 mb-3 flex items-center space-x-2">
+                <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                <span>点播曲目 / 媒体链接</span>
+            </h3>
+            <div class="flex flex-col sm:flex-row gap-3">
+                <input id="url-input" type="text" placeholder="输入音频直链 (http...mp3)、本地文件路径，或 B站/YouTube 链接" class="flex-1 bg-slate-900/80 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition">
+                <button onclick="submitPlay()" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition shadow-lg shadow-blue-600/20 whitespace-nowrap">
+                    立即播放
+                </button>
+            </div>
+            <p class="text-xs text-slate-500 mt-2">提示：若已配置 yt-dlp，可直接解析主流流媒体平台的音视频链接。</p>
+        </div>
+
+        <!-- 播放队列 -->
+        <div class="bg-cardbg border border-slate-700/50 rounded-2xl p-6 shadow-xl">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-semibold text-slate-200 flex items-center space-x-2">
+                    <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+                    <span>待播队列</span>
+                </h3>
+                <span id="queue-count" class="text-xs text-slate-400">0 首歌曲</span>
+            </div>
+            <div id="queue-list" class="space-y-2">
+                <div class="text-xs text-slate-500 py-4 text-center">队列为空</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                if (!res.ok) return;
+                const data = await res.json();
+                
+                // 更新连接指示
+                const mcBadge = document.getElementById('mc-status');
+                if (data.mc_connected) {
+                    mcBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-400 font-medium">MC: 在线 (' + data.bot_name + ')</span>';
+                    mcBadge.className = 'px-2.5 py-1 rounded-full bg-emerald-950/40 text-emerald-300 border border-emerald-800/40 flex items-center space-x-1.5';
+                }
+                const voiceBadge = document.getElementById('voice-status');
+                if (data.voice_connected) {
+                    voiceBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-400 font-medium">SVC: 语音已握手</span>';
+                    voiceBadge.className = 'px-2.5 py-1 rounded-full bg-emerald-950/40 text-emerald-300 border border-emerald-800/40 flex items-center space-x-1.5';
+                }
+
+                // 更新曲目
+                const playBadge = document.getElementById('play-badge');
+                const bitrateBadge = document.getElementById('bitrate-badge');
+                if (data.status === 'Playing') {
+                    playBadge.innerText = '播放中';
+                    playBadge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-950 text-emerald-400 border border-emerald-800/50';
+                    if (data.current_bitrate_kbps) {
+                        bitrateBadge.innerText = data.current_bitrate_kbps.toFixed(1) + ' kbps';
+                        bitrateBadge.classList.remove('hidden');
+                    } else if (data.source_bitrate_kbps) {
+                        bitrateBadge.innerText = '~' + Math.round(data.source_bitrate_kbps) + ' kbps';
+                        bitrateBadge.classList.remove('hidden');
+                    } else {
+                        bitrateBadge.classList.add('hidden');
+                    }
+                } else if (data.status === 'Paused') {
+                    playBadge.innerText = '已暂停';
+                    playBadge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-amber-950 text-amber-400 border border-amber-800/50';
+                    bitrateBadge.classList.add('hidden');
+                } else {
+                    playBadge.innerText = '空闲';
+                    playBadge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400';
+                    bitrateBadge.classList.add('hidden');
+                }
+
+                document.getElementById('current-title').innerText = data.current_track || '当前未播放曲目';
+                const sourceEl = document.getElementById('current-source');
+                if (data.status === 'Idle' && data.last_error) {
+                    sourceEl.innerText = '错误提示: ' + data.last_error;
+                    sourceEl.className = 'text-xs text-red-400 truncate max-w-xs md:max-w-md mt-1';
+                } else {
+                    sourceEl.innerText = data.current_source || '在下方输入链接点歌，或在游戏公屏发送 !play';
+                    sourceEl.className = 'text-xs text-slate-400 truncate max-w-xs md:max-w-md mt-1';
+                }
+
+                // 音量
+                document.getElementById('volume-slider').value = data.volume;
+                document.getElementById('volume-label').innerText = data.volume + '%';
+
+                // 队列
+                const qList = document.getElementById('queue-list');
+                const qCount = document.getElementById('queue-count');
+                qCount.innerText = (data.queue ? data.queue.length : 0) + ' 首歌曲';
+                if (!data.queue || data.queue.length === 0) {
+                    qList.innerHTML = '<div class="text-xs text-slate-500 py-4 text-center">队列为空</div>';
+                } else {
+                    qList.innerHTML = data.queue.map((t, idx) => `
+                        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/60 text-xs">
+                            <span class="text-slate-300 font-medium truncate max-w-sm">${idx + 1}. ${t}</span>
+                            <span class="text-slate-500 text-[10px]">待播</span>
+                        </div>
+                    `).join('');
+                }
+            } catch (e) {
+                console.error('Fetch status error:', e);
+            }
+        }
+
+        async function submitPlay() {
+            const input = document.getElementById('url-input');
+            const url = input.value.trim();
+            if (!url) return;
+            try {
+                const res = await fetch('/api/play', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ url: url })
+                });
+                if (!res.ok) {
+                    const errText = await res.text();
+                    alert('点歌失败: ' + errText);
+                    return;
+                }
+                input.value = '';
+                fetchStatus();
+            } catch (e) {
+                alert('点歌请求发送失败: ' + e);
+            }
+        }
+
+        async function sendControl(action, value) {
+            try {
+                await fetch('/api/control', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: action, value: value })
+                });
+                fetchStatus();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        let volTimeout = null;
+        function onVolumeChange(val) {
+            document.getElementById('volume-label').innerText = val + '%';
+            clearTimeout(volTimeout);
+            volTimeout = setTimeout(() => {
+                sendControl('volume', parseInt(val));
+            }, 100);
+        }
+
+        setInterval(fetchStatus, 1500);
+        fetchStatus();
+    </script>
+</body>
+</html>
