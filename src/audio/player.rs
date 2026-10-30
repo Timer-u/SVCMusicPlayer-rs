@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use rusty_opus::{Application, OpusEncoder};
@@ -8,24 +8,9 @@ use tokio::time::interval;
 use tracing::{error, info, warn};
 
 use crate::audio::decoder::AudioDecoder;
+use crate::audio::loudness::LoudnessProcessor;
+use crate::audio::playlist::{PlayerEvent, RequestOrigin, TrackInfo};
 use crate::voice::client::VoiceClient;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RequestOrigin {
-    GameChat { sender: Option<String> },
-    WebConsole,
-    Internal,
-}
-
-#[derive(Debug, Clone)]
-pub struct TrackInfo {
-    pub title: String,
-    pub source: String,
-    pub is_local_file: bool,
-    pub http_headers: Option<std::collections::HashMap<String, String>>,
-    pub source_bitrate_kbps: Option<f64>,
-    pub origin: RequestOrigin,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaybackStatus {
@@ -40,6 +25,11 @@ pub struct AudioPlayer {
     pub volume: Arc<AtomicU32>, // 0 ~ 100
     pub current_bitrate_kbps: Arc<AtomicU32>, // 实时推流码率 (x10 存储，例如 960 代表 96.0 kbps)
     pub target_bitrate_kbps: u32,
+    pub elapsed_secs: Arc<AtomicU32>,
+    pub duration_secs: Arc<AtomicU32>,
+    pub replay_gain_enabled: Arc<AtomicBool>,
+    pub current_gain_db_x10: Arc<AtomicI32>,
+    pub target_lufs: f32,
     pub last_error: Arc<RwLock<Option<String>>>,
     cmd_tx: mpsc::Sender<PlayerCommand>,
 }
@@ -57,12 +47,19 @@ impl AudioPlayer {
         ffmpeg_path: Option<PathBuf>,
         bitrate_kbps: u32,
         chat_sender: Arc<RwLock<Option<mpsc::Sender<String>>>>,
+        replay_gain_enabled: bool,
+        target_lufs: f32,
+        event_tx: mpsc::Sender<PlayerEvent>,
     ) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel(16);
         let current_track = Arc::new(RwLock::new(None));
         let status = Arc::new(RwLock::new(PlaybackStatus::Idle));
         let volume = Arc::new(AtomicU32::new(80)); // 默认 80%
         let current_bitrate_kbps = Arc::new(AtomicU32::new(0));
+        let elapsed_secs = Arc::new(AtomicU32::new(0));
+        let duration_secs = Arc::new(AtomicU32::new(0));
+        let replay_gain_enabled_atomic = Arc::new(AtomicBool::new(replay_gain_enabled));
+        let current_gain_db_x10 = Arc::new(AtomicI32::new(0));
         let last_error = Arc::new(RwLock::new(None));
         let target_bitrate = if bitrate_kbps > 0 { bitrate_kbps } else { 96 };
 
@@ -72,6 +69,11 @@ impl AudioPlayer {
             volume: Arc::clone(&volume),
             current_bitrate_kbps: Arc::clone(&current_bitrate_kbps),
             target_bitrate_kbps: target_bitrate,
+            elapsed_secs: Arc::clone(&elapsed_secs),
+            duration_secs: Arc::clone(&duration_secs),
+            replay_gain_enabled: Arc::clone(&replay_gain_enabled_atomic),
+            current_gain_db_x10: Arc::clone(&current_gain_db_x10),
+            target_lufs,
             last_error: Arc::clone(&last_error),
             cmd_tx,
         };
@@ -81,6 +83,10 @@ impl AudioPlayer {
         let status_clone = Arc::clone(&status);
         let volume_clone = Arc::clone(&volume);
         let current_bitrate_kbps_clone = Arc::clone(&current_bitrate_kbps);
+        let elapsed_secs_clone = Arc::clone(&elapsed_secs);
+        let duration_secs_clone = Arc::clone(&duration_secs);
+        let replay_gain_clone = Arc::clone(&replay_gain_enabled_atomic);
+        let current_gain_clone = Arc::clone(&current_gain_db_x10);
         let last_error_clone = Arc::clone(&last_error);
 
         tokio::spawn(async move {
@@ -92,8 +98,14 @@ impl AudioPlayer {
                 status_clone,
                 volume_clone,
                 current_bitrate_kbps_clone,
+                elapsed_secs_clone,
+                duration_secs_clone,
+                replay_gain_clone,
+                current_gain_clone,
+                target_lufs,
                 last_error_clone,
                 chat_sender,
+                event_tx,
                 cmd_rx,
             )
             .await;
@@ -132,6 +144,23 @@ impl AudioPlayer {
         self.volume.load(Ordering::SeqCst)
     }
 
+    pub fn is_replay_gain_enabled(&self) -> bool {
+        self.replay_gain_enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn set_replay_gain_enabled(&self, enabled: bool) {
+        self.replay_gain_enabled.store(enabled, Ordering::Relaxed);
+        info!("[Player] ReplayGain 设置为: {}", enabled);
+    }
+
+    pub fn get_current_gain_db(&self) -> Option<f32> {
+        if self.replay_gain_enabled.load(Ordering::Relaxed) {
+            Some(self.current_gain_db_x10.load(Ordering::Relaxed) as f32 / 10.0)
+        } else {
+            None
+        }
+    }
+
     async fn worker_loop(
         voice_client: Arc<VoiceClient>,
         ffmpeg_path: Option<PathBuf>,
@@ -140,11 +169,20 @@ impl AudioPlayer {
         status: Arc<RwLock<PlaybackStatus>>,
         volume: Arc<AtomicU32>,
         current_bitrate_kbps: Arc<AtomicU32>,
+        elapsed_secs: Arc<AtomicU32>,
+        duration_secs: Arc<AtomicU32>,
+        replay_gain_enabled: Arc<AtomicBool>,
+        current_gain_db_x10: Arc<AtomicI32>,
+        target_lufs: f32,
         last_error: Arc<RwLock<Option<String>>>,
         chat_sender: Arc<RwLock<Option<mpsc::Sender<String>>>>,
+        event_tx: mpsc::Sender<PlayerEvent>,
         mut cmd_rx: mpsc::Receiver<PlayerCommand>,
     ) {
         let mut active_decoder: Option<AudioDecoder> = None;
+        let mut active_track: Option<TrackInfo> = None;
+        let mut loudness_proc = LoudnessProcessor::new(target_lufs, None);
+
         let mut encoder = match OpusEncoder::new(48000, 1, Application::Audio) {
             Ok(mut enc) => {
                 enc.bitrate_bps = (target_bitrate_kbps * 1000) as i32;
@@ -189,10 +227,12 @@ impl AudioPlayer {
                             );
 
                             *current_track.write().await = Some(track.clone());
+                            active_track = Some(track.clone());
                             *status.write().await = PlaybackStatus::Playing;
                             *last_error.write().await = None;
 
                             total_frames_played = 0;
+                            elapsed_secs.store(0, Ordering::Relaxed);
                             window_frames = 0;
                             window_bytes = 0;
                             initial_logged = false;
@@ -205,6 +245,10 @@ impl AudioPlayer {
                                 ffmpeg_path.as_deref(),
                             ).await {
                                 Ok(dec) => {
+                                    let dur = track.duration_secs.or(dec.duration_secs).unwrap_or(0);
+                                    duration_secs.store(dur as u32, Ordering::Relaxed);
+                                    let pre_gain = track.replay_gain_db.or(dec.precomputed_gain_db);
+                                    loudness_proc = LoudnessProcessor::new(target_lufs, pre_gain);
                                     active_decoder = Some(dec);
                                 }
                                 Err(e) => {
@@ -226,9 +270,18 @@ impl AudioPlayer {
                                         RequestOrigin::Internal => {}
                                     }
 
+                                    let failed_track = track.clone();
                                     active_decoder = None;
+                                    active_track = None;
                                     *current_track.write().await = None;
                                     *status.write().await = PlaybackStatus::Idle;
+                                    elapsed_secs.store(0, Ordering::Relaxed);
+                                    duration_secs.store(0, Ordering::Relaxed);
+
+                                    let _ = event_tx.send(PlayerEvent::TrackFailed {
+                                        track: failed_track,
+                                        error: err_msg,
+                                    }).await;
                                 }
                             }
                         }
@@ -244,14 +297,18 @@ impl AudioPlayer {
                         Some(PlayerCommand::Stop) => {
                             info!("[Player] 停止播放");
                             active_decoder = None;
+                            active_track = None;
                             *current_track.write().await = None;
                             *status.write().await = PlaybackStatus::Idle;
                             *last_error.write().await = None;
                             total_frames_played = 0;
+                            elapsed_secs.store(0, Ordering::Relaxed);
+                            duration_secs.store(0, Ordering::Relaxed);
                             window_frames = 0;
                             window_bytes = 0;
                             initial_logged = false;
                             current_bitrate_kbps.store(0, Ordering::Relaxed);
+                            current_gain_db_x10.store(0, Ordering::Relaxed);
                         }
                         None => break,
                     }
@@ -266,9 +323,9 @@ impl AudioPlayer {
                     match decoder.read_samples(frame_size).await {
                         Ok(Some(samples)) => {
                             let vol = volume.load(Ordering::SeqCst) as f32 / 100.0;
-                            for i in 0..frame_size {
-                                f32_buf[i] = ((samples[i] as f32) / 32768.0) * vol;
-                            }
+                            let rg_on = replay_gain_enabled.load(Ordering::Relaxed);
+                            let applied_gain = loudness_proc.process_frame(&samples, &mut f32_buf, rg_on, vol);
+                            current_gain_db_x10.store((applied_gain * 10.0).round() as i32, Ordering::Relaxed);
 
                             // 实时进行 Opus 编码并推流
                             match encoder.encode(&f32_buf, frame_size, &mut opus_buf) {
@@ -281,15 +338,17 @@ impl AudioPlayer {
                                     window_bytes += encoded_len;
                                     window_frames += 1;
                                     total_frames_played += 1;
+                                    elapsed_secs.store((total_frames_played / 50) as u32, Ordering::Relaxed);
 
                                     // 首秒呈现：第 50 帧 (1秒推流完成) 输出初始推流码率
                                     if !initial_logged && window_frames >= 50 {
                                         let kbps = (window_bytes as f64 * 8.0) / (window_frames as f64 * 0.02 * 1000.0);
                                         let avg_bytes = window_bytes / window_frames as usize;
                                         info!(
-                                            "[Player] 初始推流码率: {:.1} kbps (实时 Opus 编码, 50 pkt/s, 平均帧长: {} 字节)",
+                                            "[Player] 初始推流码率: {:.1} kbps (实时 Opus 编码, 50 pkt/s, 平均帧长: {} 字节, RG: {:+.1} dB)",
                                             kbps,
-                                            avg_bytes
+                                            avg_bytes,
+                                            applied_gain
                                         );
                                         current_bitrate_kbps.store((kbps * 10.0) as u32, Ordering::Relaxed);
                                         initial_logged = true;
@@ -305,11 +364,12 @@ impl AudioPlayer {
                                         let mins = total_secs / 60;
                                         let secs = total_secs % 60;
                                         info!(
-                                            "[Player] 实时推流码率: {:.1} kbps [进度 {:02}:{:02}] (平均包长: {} 字节, 50 pkt/s, Opus VBR)",
+                                            "[Player] 实时推流码率: {:.1} kbps [进度 {:02}:{:02}] (平均包长: {} 字节, 50 pkt/s, RG: {:+.1} dB)",
                                             kbps,
                                             mins,
                                             secs,
-                                            avg_bytes
+                                            avg_bytes,
+                                            applied_gain
                                         );
                                         current_bitrate_kbps.store((kbps * 10.0) as u32, Ordering::Relaxed);
                                         window_bytes = 0;
@@ -331,24 +391,40 @@ impl AudioPlayer {
                                 total_frames_played
                             );
                             active_decoder = None;
+                            active_track = None;
                             *current_track.write().await = None;
                             *status.write().await = PlaybackStatus::Idle;
                             total_frames_played = 0;
+                            elapsed_secs.store(0, Ordering::Relaxed);
+                            duration_secs.store(0, Ordering::Relaxed);
                             window_frames = 0;
                             window_bytes = 0;
                             initial_logged = false;
                             current_bitrate_kbps.store(0, Ordering::Relaxed);
+
+                            let _ = event_tx.send(PlayerEvent::TrackFinished).await;
                         }
                         Err(e) => {
-                            error!("[Player] 音频流读取异常中断: {:?}", e);
+                            let err_msg = e.to_string();
+                            error!("[Player] 音频流读取异常中断: {:?}", err_msg);
                             active_decoder = None;
+                            let failed_track = active_track.take();
                             *current_track.write().await = None;
                             *status.write().await = PlaybackStatus::Idle;
                             total_frames_played = 0;
+                            elapsed_secs.store(0, Ordering::Relaxed);
+                            duration_secs.store(0, Ordering::Relaxed);
                             window_frames = 0;
                             window_bytes = 0;
                             initial_logged = false;
                             current_bitrate_kbps.store(0, Ordering::Relaxed);
+
+                            if let Some(t) = failed_track {
+                                let _ = event_tx.send(PlayerEvent::TrackFailed {
+                                    track: t,
+                                    error: err_msg,
+                                }).await;
+                            }
                         }
                     }
                 }

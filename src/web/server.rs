@@ -106,7 +106,7 @@ async fn status_handler(State(app): State<Arc<AppManager>>) -> Json<StatusRespon
     }
 
     let queue_guard = app.playlist.lock().await;
-    let queue: Vec<String> = queue_guard.iter().map(|t| t.title.clone()).collect();
+    let queue: Vec<String> = queue_guard.tracks.iter().map(|t| t.title.clone()).collect();
 
     Json(StatusResponse {
         mc_connected,

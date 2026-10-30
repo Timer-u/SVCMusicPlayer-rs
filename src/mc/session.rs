@@ -228,6 +228,9 @@ async fn handle_bot_event(
                                                     app_clone.tools.ffmpeg.clone(),
                                                     app_clone.config.voice.bitrate_kbps,
                                                     Arc::clone(&app_clone.chat_sender),
+                                                    app_clone.config.voice.replay_gain,
+                                                    app_clone.config.voice.target_lufs,
+                                                    app_clone.event_tx.clone(),
                                                 ));
                                                 app_clone.bind_voice_player(voice_client, player).await;
                                                 info!("[MC] 语音伴播服务整体初始化成功！已成功连接 SVC 语音通道。");
