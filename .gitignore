@@ -4,5 +4,6 @@
 /bin
 /cache
 *.old
+*.ps1
 playlist.json
 config.toml
