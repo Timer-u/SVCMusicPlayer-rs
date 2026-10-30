@@ -1,18 +1,27 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SVCMusicPlayer-rs 控制台</title>
+    <title>SVCMusicPlayer-rs 语音伴播控制台</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
-            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
-                        darkbg: '#0f172a',
-                        cardbg: '#1e293b',
+                        sky: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            200: '#bae6fd',
+                            300: '#7dd3fc',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                        }
                     }
                 }
             }
@@ -21,137 +30,299 @@
     <style>
         input[type="range"]::-webkit-slider-thumb {
             appearance: none;
-            width: 16px;
-            height: 16px;
+            width: 15px;
+            height: 15px;
             border-radius: 50%;
-            background: #3b82f6;
+            background: #0ea5e9;
+            border: 2px solid #ffffff;
+            box-shadow: 0 1px 4px rgba(14, 165, 233, 0.4);
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #0ea5e9;
+            border: 2px solid #ffffff;
+            box-shadow: 0 1px 4px rgba(14, 165, 233, 0.4);
             cursor: pointer;
         }
+        @keyframes soundwave {
+            0%, 100% { height: 4px; }
+            50% { height: 16px; }
+        }
+        .animate-bar-1 { animation: soundwave 1s ease-in-out infinite; }
+        .animate-bar-2 { animation: soundwave 1s ease-in-out infinite 0.2s; }
+        .animate-bar-3 { animation: soundwave 1s ease-in-out infinite 0.4s; }
     </style>
 </head>
-<body class="bg-darkbg text-slate-100 min-h-screen font-sans antialiased">
+<body class="bg-gradient-to-br from-[#f0f9ff] via-[#f8fafc] to-[#ecfeff] text-slate-700 min-h-screen font-sans antialiased selection:bg-sky-200 selection:text-sky-900 pb-12">
+    <!-- Toast 通知容器 -->
+    <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
     <div class="max-w-4xl mx-auto px-4 py-8">
-        <!-- 头部 -->
-        <header class="flex items-center justify-between border-b border-slate-700/60 pb-5 mb-8">
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+        <!-- 顶部导航 Header -->
+        <header class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-sky-100/90 pb-5 mb-8 gap-4">
+            <div class="flex items-center space-x-3.5">
+                <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-sky-400 to-cyan-500 flex items-center justify-center shadow-md shadow-sky-400/25 flex-shrink-0 text-white">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+                    </svg>
                 </div>
                 <div>
-                    <h1 class="text-xl font-bold tracking-tight text-white">SVCMusicPlayer-rs</h1>
-                    <p class="text-xs text-slate-400">Simple Voice Chat 独立语音伴播控制台</p>
+                    <h1 class="text-xl font-bold tracking-tight text-slate-800">SVCMusicPlayer-rs</h1>
+                    <p class="text-xs text-sky-600/80 font-medium">Simple Voice Chat 独立语音伴播控制台</p>
                 </div>
             </div>
-            <!-- 状态标签 -->
-            <div class="flex items-center space-x-3 text-xs">
-                <span id="mc-status" class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 flex items-center space-x-1.5">
-                    <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+            <!-- 右侧 3 个状态徽章 -->
+            <div class="flex items-center flex-wrap gap-2 text-xs">
+                <span id="mc-status" class="px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 flex items-center space-x-1.5 transition">
+                    <span class="w-2 h-2 rounded-full bg-slate-400"></span>
                     <span>MC: 连接中</span>
                 </span>
-                <span id="voice-status" class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 flex items-center space-x-1.5">
-                    <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+                <span id="voice-status" class="px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 flex items-center space-x-1.5 transition">
+                    <span class="w-2 h-2 rounded-full bg-slate-400"></span>
                     <span>SVC: 未握手</span>
+                </span>
+                <span id="group-status" class="px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 flex items-center space-x-1.5 transition">
+                    <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    <span>群组: 无</span>
                 </span>
             </div>
         </header>
 
-        <!-- 播放器主卡片 -->
-        <div class="bg-cardbg border border-slate-700/50 rounded-2xl p-6 shadow-xl mb-6">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <!-- 主播控卡片 Player Card -->
+        <div class="bg-white/85 backdrop-blur-md border border-sky-100/80 rounded-2xl p-6 shadow-[0_4px_20px_-4px_rgba(14,165,233,0.08)] mb-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-5">
                 <!-- 曲目信息 -->
                 <div class="flex items-center space-x-4">
-                    <div id="cover-art" class="w-16 h-16 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-500">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
-                    </div>
-                    <div>
-                        <div class="flex items-center space-x-2">
-                            <span id="play-badge" class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400">空闲</span>
-                            <span id="bitrate-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-medium bg-blue-950 text-blue-400 border border-blue-800/50">0 kbps</span>
-                            <h2 id="current-title" class="text-base font-semibold text-white truncate max-w-xs md:max-w-md">当前未播放曲目</h2>
+                    <div id="cover-art" class="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-100 to-cyan-50 border border-sky-200/60 flex items-center justify-center flex-shrink-0 text-sky-500 shadow-inner">
+                        <div id="soundwave-anim" class="hidden flex items-end justify-center space-x-1 h-6">
+                            <span class="w-1 bg-sky-500 rounded-full animate-bar-1"></span>
+                            <span class="w-1 bg-cyan-400 rounded-full animate-bar-2"></span>
+                            <span class="w-1 bg-sky-500 rounded-full animate-bar-3"></span>
                         </div>
-                        <p id="current-source" class="text-xs text-slate-400 truncate max-w-xs md:max-w-md mt-1">在下方输入链接点歌，或在游戏公屏发送 !play</p>
+                        <svg id="cover-icon-idle" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+                        </svg>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center flex-wrap gap-2 mb-1.5">
+                            <span id="play-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200">空闲</span>
+                            <span id="bitrate-badge" class="hidden px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-sky-50 text-sky-600 border border-sky-200/80">96.0 kbps</span>
+                            <span id="rg-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-teal-50 text-teal-700 border border-teal-200/80 font-mono">RG: 关闭</span>
+                        </div>
+                        <h2 id="current-title" class="text-base sm:text-lg font-bold text-slate-800 truncate max-w-xs md:max-w-md">当前未播放曲目</h2>
+                        <p id="current-source" class="text-xs text-slate-400 truncate max-w-xs md:max-w-md mt-0.5">在下方输入链接点歌，或在游戏公屏发送 !play</p>
                     </div>
                 </div>
 
-                <!-- 播控按钮 -->
-                <div class="flex items-center space-x-2">
-                    <button onclick="sendControl('resume')" title="继续" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
-                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                <!-- 播控按钮组 -->
+                <div class="flex items-center space-x-2 self-start md:self-center">
+                    <!-- 上一首 -->
+                    <button onclick="sendControl('prev')" title="上一首" class="p-2.5 rounded-xl bg-sky-50 hover:bg-sky-100/80 text-sky-600 border border-sky-200/70 transition active:scale-95">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.334 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z"/></svg>
                     </button>
-                    <button onclick="sendControl('pause')" title="暂停" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
-                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                    <!-- 播放/暂停主按钮 -->
+                    <button id="main-play-btn" onclick="togglePlayPause()" title="播放/暂停" class="p-3.5 rounded-2xl bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-500 hover:to-cyan-600 text-white shadow-sm shadow-sky-400/25 transition active:scale-95">
+                        <svg id="main-play-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
                     </button>
-                    <button onclick="sendControl('stop')" title="停止" class="p-3 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition">
+                    <!-- 下一首 -->
+                    <button onclick="sendControl('skip')" title="下一首" class="p-2.5 rounded-xl bg-sky-50 hover:bg-sky-100/80 text-sky-600 border border-sky-200/70 transition active:scale-95">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z"/></svg>
+                    </button>
+                    <!-- 停止 -->
+                    <button onclick="sendControl('stop')" title="停止" class="p-2.5 rounded-xl bg-rose-50 hover:bg-rose-100/80 text-rose-500 border border-rose-200/70 transition active:scale-95">
                         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"/></svg>
                     </button>
                 </div>
             </div>
 
-            <!-- 音量控制 -->
-            <div class="mt-6 pt-5 border-t border-slate-700/40 flex items-center space-x-4">
-                <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
-                <div class="flex-1">
-                    <input id="volume-slider" type="range" min="0" max="100" value="80" oninput="onVolumeChange(this.value)" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+            <!-- 播放进度条 -->
+            <div class="mt-6">
+                <div class="w-full bg-sky-100/80 h-2 rounded-full overflow-hidden">
+                    <div id="progress-bar" class="h-full bg-gradient-to-r from-sky-400 to-cyan-500 rounded-full transition-all duration-300" style="width: 0%"></div>
                 </div>
-                <span id="volume-label" class="text-xs font-mono text-slate-300 w-10 text-right">80%</span>
+                <div class="flex justify-between items-center text-xs font-mono text-slate-400 mt-1.5">
+                    <span id="time-elapsed">00:00</span>
+                    <span id="time-duration">--:--</span>
+                </div>
+            </div>
+
+            <!-- 调音与播放模式栏 -->
+            <div class="mt-5 pt-4 border-t border-sky-100/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <!-- 左侧：播放模式切换与 ReplayGain 开关 -->
+                <div class="flex items-center space-x-2.5 w-full sm:w-auto">
+                    <!-- 模式切换按钮 -->
+                    <button id="mode-btn" onclick="cyclePlayMode()" title="点击切换播放模式" class="px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100/80 text-sky-700 border border-sky-200/70 text-xs font-medium flex items-center space-x-1.5 transition active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        <span id="mode-text">列表循环</span>
+                    </button>
+                    <!-- ReplayGain 开关 -->
+                    <button id="rg-toggle-btn" onclick="toggleReplayGain()" title="切换 ReplayGain 响度平衡" class="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100/80 text-teal-700 border border-teal-200/70 text-xs font-medium flex items-center space-x-1.5 transition active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+                        <span id="rg-toggle-text">RG 开启</span>
+                    </button>
+                </div>
+
+                <!-- 右侧：音量滑块 -->
+                <div class="flex items-center space-x-3 w-full sm:w-auto sm:justify-end">
+                    <svg class="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                    </svg>
+                    <input id="volume-slider" type="range" min="0" max="100" value="80" oninput="onVolumeChange(this.value)" class="w-32 h-1.5 bg-sky-100 rounded-lg appearance-none cursor-pointer">
+                    <span id="volume-label" class="text-xs font-mono font-medium text-slate-500 w-9 text-right">80%</span>
+                </div>
             </div>
         </div>
 
-        <!-- 点歌提交输入卡片 -->
-        <div class="bg-cardbg border border-slate-700/50 rounded-2xl p-6 shadow-xl mb-6">
-            <h3 class="text-sm font-semibold text-slate-200 mb-3 flex items-center space-x-2">
-                <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        <!-- 点播输入卡片 Add Media Card -->
+        <div class="bg-white/85 backdrop-blur-md border border-sky-100/80 rounded-2xl p-6 shadow-[0_4px_20px_-4px_rgba(14,165,233,0.08)] mb-6">
+            <h3 class="text-sm font-semibold text-slate-700 mb-3 flex items-center space-x-2">
+                <svg class="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 <span>点播曲目 / 媒体链接</span>
             </h3>
             <div class="flex flex-col sm:flex-row gap-3">
-                <input id="url-input" type="text" placeholder="输入音频直链 (http...mp3)、本地文件路径，或 B站/YouTube 链接" class="flex-1 bg-slate-900/80 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition">
-                <button onclick="submitPlay()" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition shadow-lg shadow-blue-600/20 whitespace-nowrap">
-                    立即播放
-                </button>
+                <input id="url-input" type="text" onkeydown="handleInputKey(event)" placeholder="输入音频直链 (http...mp3)、网易云/B站/YouTube 链接，或本地音频路径" class="flex-1 bg-slate-50/80 border border-sky-200/80 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 focus:bg-white transition">
+                <div class="flex space-x-2">
+                    <button onclick="submitPlay(false)" title="将歌曲添加到歌单末尾" class="flex-1 sm:flex-none px-4 py-2.5 bg-sky-50 hover:bg-sky-100/80 text-sky-600 border border-sky-200/70 rounded-xl text-sm font-medium transition active:scale-95 whitespace-nowrap">
+                        加入列表
+                    </button>
+                    <button onclick="submitPlay(true)" title="立即插播并切到该曲" class="flex-1 sm:flex-none px-5 py-2.5 bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-500 hover:to-cyan-600 text-white rounded-xl text-sm font-medium transition shadow-sm shadow-sky-400/25 active:scale-95 whitespace-nowrap">
+                        立即播放
+                    </button>
+                </div>
             </div>
-            <p class="text-xs text-slate-500 mt-2">提示：若已配置 yt-dlp，可直接解析主流流媒体平台的音视频链接。</p>
+            <p class="text-xs text-slate-400 mt-2">提示：支持回车提交（默认加入列表）；已配置 yt-dlp 时可直接解析流媒体音视频。</p>
         </div>
 
-        <!-- 播放队列 -->
-        <div class="bg-cardbg border border-slate-700/50 rounded-2xl p-6 shadow-xl">
+        <!-- 驻留歌单管理卡片 Playlist Card -->
+        <div class="bg-white/85 backdrop-blur-md border border-sky-100/80 rounded-2xl p-6 shadow-[0_4px_20px_-4px_rgba(14,165,233,0.08)]">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-semibold text-slate-200 flex items-center space-x-2">
-                    <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
-                    <span>待播队列</span>
-                </h3>
-                <span id="queue-count" class="text-xs text-slate-400">0 首歌曲</span>
+                <div class="flex items-center space-x-2.5">
+                    <h3 class="text-sm font-semibold text-slate-700 flex items-center space-x-2">
+                        <svg class="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+                        <span>驻留歌单</span>
+                    </h3>
+                    <span id="playlist-count" class="text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-600 border border-sky-200/60 font-medium">0 首曲目</span>
+                    <span id="playlist-mode-badge" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 font-medium">列表循环</span>
+                </div>
+                <button onclick="clearPlaylist()" class="text-xs px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100/80 text-rose-500 border border-rose-200/70 transition active:scale-95 flex items-center space-x-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    <span>清空歌单</span>
+                </button>
             </div>
-            <div id="queue-list" class="space-y-2">
-                <div class="text-xs text-slate-500 py-4 text-center">队列为空</div>
+            
+            <!-- 歌单曲目列表 -->
+            <div id="playlist-container" class="space-y-2">
+                <div class="text-xs text-slate-400 py-8 text-center bg-slate-50/50 rounded-xl border border-dashed border-sky-100">歌单为空，快点一首喜欢的音乐吧~</div>
             </div>
         </div>
     </div>
 
     <script>
+        let currentState = {
+            status: 'Idle',
+            play_mode: 'ListLoop',
+            replay_gain_enabled: true,
+            volume: 80,
+            elapsed_secs: 0,
+            duration_secs: null,
+        };
+
+        const PLAY_MODES = ['ListLoop', 'SingleLoop', 'Shuffle', 'Sequential'];
+        const PLAY_MODE_NAMES = {
+            'ListLoop': '列表循环',
+            'SingleLoop': '单曲循环',
+            'Shuffle': '随机播放',
+            'Sequential': '顺序播放',
+        };
+
+        function showToast(message, isError = false) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `px-4 py-2.5 rounded-xl shadow-lg border text-xs font-medium transition-all duration-300 transform translate-y-2 opacity-0 pointer-events-auto flex items-center space-x-2 ${
+                isError 
+                    ? 'bg-rose-50 border-rose-200 text-rose-700' 
+                    : 'bg-white/95 backdrop-blur-md border-sky-200/80 text-sky-800 shadow-sky-500/10'
+            }`;
+            toast.innerHTML = `
+                <span class="w-1.5 h-1.5 rounded-full ${isError ? 'bg-rose-500' : 'bg-sky-500'}"></span>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 2500);
+        }
+
+        function formatTime(secs) {
+            if (secs === null || secs === undefined || isNaN(secs)) return '--:--';
+            const m = Math.floor(secs / 60);
+            const s = Math.floor(secs % 60);
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
         async function fetchStatus() {
             try {
                 const res = await fetch('/api/status');
                 if (!res.ok) return;
                 const data = await res.json();
-                
-                // 更新连接指示
+                currentState = data;
+
+                // 1. 顶部指示灯
                 const mcBadge = document.getElementById('mc-status');
                 if (data.mc_connected) {
-                    mcBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-400 font-medium">MC: 在线 (' + data.bot_name + ')</span>';
-                    mcBadge.className = 'px-2.5 py-1 rounded-full bg-emerald-950/40 text-emerald-300 border border-emerald-800/40 flex items-center space-x-1.5';
-                }
-                const voiceBadge = document.getElementById('voice-status');
-                if (data.voice_connected) {
-                    voiceBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-400 font-medium">SVC: 语音已握手</span>';
-                    voiceBadge.className = 'px-2.5 py-1 rounded-full bg-emerald-950/40 text-emerald-300 border border-emerald-800/40 flex items-center space-x-1.5';
+                    mcBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span class="text-emerald-700 font-medium">MC: 在线 (${data.bot_name})</span>`;
+                    mcBadge.className = 'px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center space-x-1.5 transition';
+                } else {
+                    mcBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-slate-400"></span><span>MC: 未连接</span>';
+                    mcBadge.className = 'px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 flex items-center space-x-1.5 transition';
                 }
 
-                // 更新曲目
+                const voiceBadge = document.getElementById('voice-status');
+                if (data.voice_connected) {
+                    voiceBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-700 font-medium">SVC: 语音已握手</span>';
+                    voiceBadge.className = 'px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center space-x-1.5 transition';
+                } else {
+                    voiceBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-slate-400"></span><span>SVC: 未握手</span>';
+                    voiceBadge.className = 'px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 flex items-center space-x-1.5 transition';
+                }
+
+                const groupBadge = document.getElementById('group-status');
+                if (data.current_group) {
+                    groupBadge.innerHTML = `<svg class="w-3.5 h-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg><span class="text-sky-700 font-medium">群组: ${data.current_group}</span>`;
+                    groupBadge.className = 'px-3 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200/80 flex items-center space-x-1.5 transition';
+                } else {
+                    groupBadge.innerHTML = '<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg><span>群组: 无</span>';
+                    groupBadge.className = 'px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 flex items-center space-x-1.5 transition';
+                }
+
+                // 2. 播放状态与封面动画
                 const playBadge = document.getElementById('play-badge');
                 const bitrateBadge = document.getElementById('bitrate-badge');
+                const soundwaveAnim = document.getElementById('soundwave-anim');
+                const coverIconIdle = document.getElementById('cover-icon-idle');
+                const mainPlayIcon = document.getElementById('main-play-icon');
+
                 if (data.status === 'Playing') {
                     playBadge.innerText = '播放中';
-                    playBadge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-950 text-emerald-400 border border-emerald-800/50';
+                    playBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80';
+                    soundwaveAnim.classList.remove('hidden');
+                    coverIconIdle.classList.add('hidden');
+                    // 暂停图标 (两个竖杠)
+                    mainPlayIcon.innerHTML = '<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/>';
+
                     if (data.current_bitrate_kbps) {
                         bitrateBadge.innerText = data.current_bitrate_kbps.toFixed(1) + ' kbps';
                         bitrateBadge.classList.remove('hidden');
@@ -163,92 +334,243 @@
                     }
                 } else if (data.status === 'Paused') {
                     playBadge.innerText = '已暂停';
-                    playBadge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-amber-950 text-amber-400 border border-amber-800/50';
+                    playBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200/80';
+                    soundwaveAnim.classList.add('hidden');
+                    coverIconIdle.classList.remove('hidden');
                     bitrateBadge.classList.add('hidden');
+                    // 播放图标 (三角)
+                    mainPlayIcon.innerHTML = '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/>';
                 } else {
                     playBadge.innerText = '空闲';
-                    playBadge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400';
+                    playBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200';
+                    soundwaveAnim.classList.add('hidden');
+                    coverIconIdle.classList.remove('hidden');
                     bitrateBadge.classList.add('hidden');
+                    mainPlayIcon.innerHTML = '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/>';
                 }
 
+                // ReplayGain 徽章与开关按钮
+                const rgBadge = document.getElementById('rg-badge');
+                const rgToggleBtn = document.getElementById('rg-toggle-btn');
+                const rgToggleText = document.getElementById('rg-toggle-text');
+                if (data.replay_gain_enabled) {
+                    const gainVal = data.current_gain_db !== null && data.current_gain_db !== undefined 
+                        ? (data.current_gain_db >= 0 ? `+${data.current_gain_db.toFixed(1)} dB` : `${data.current_gain_db.toFixed(1)} dB`)
+                        : '0.0 dB';
+                    rgBadge.innerText = `RG: ${gainVal}`;
+                    rgBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-teal-50 text-teal-700 border border-teal-200/80 font-mono';
+
+                    rgToggleText.innerText = 'RG 开启';
+                    rgToggleBtn.className = 'px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100/80 text-teal-700 border border-teal-200/70 text-xs font-medium flex items-center space-x-1.5 transition active:scale-95';
+                } else {
+                    rgBadge.innerText = 'RG: 已关闭';
+                    rgBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-400 border border-slate-200 font-mono';
+
+                    rgToggleText.innerText = 'RG 关闭';
+                    rgToggleBtn.className = 'px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-500 border border-slate-200 text-xs font-medium flex items-center space-x-1.5 transition active:scale-95';
+                }
+
+                // 标题与来源
                 document.getElementById('current-title').innerText = data.current_track || '当前未播放曲目';
                 const sourceEl = document.getElementById('current-source');
                 if (data.status === 'Idle' && data.last_error) {
                     sourceEl.innerText = '错误提示: ' + data.last_error;
-                    sourceEl.className = 'text-xs text-red-400 truncate max-w-xs md:max-w-md mt-1';
+                    sourceEl.className = 'text-xs text-rose-500 truncate max-w-xs md:max-w-md mt-0.5';
                 } else {
                     sourceEl.innerText = data.current_source || '在下方输入链接点歌，或在游戏公屏发送 !play';
-                    sourceEl.className = 'text-xs text-slate-400 truncate max-w-xs md:max-w-md mt-1';
+                    sourceEl.className = 'text-xs text-slate-400 truncate max-w-xs md:max-w-md mt-0.5';
                 }
 
-                // 音量
-                document.getElementById('volume-slider').value = data.volume;
-                document.getElementById('volume-label').innerText = data.volume + '%';
-
-                // 队列
-                const qList = document.getElementById('queue-list');
-                const qCount = document.getElementById('queue-count');
-                qCount.innerText = (data.queue ? data.queue.length : 0) + ' 首歌曲';
-                if (!data.queue || data.queue.length === 0) {
-                    qList.innerHTML = '<div class="text-xs text-slate-500 py-4 text-center">队列为空</div>';
+                // 进度条与时间
+                document.getElementById('time-elapsed').innerText = formatTime(data.elapsed_secs);
+                document.getElementById('time-duration').innerText = formatTime(data.duration_secs);
+                const progressBar = document.getElementById('progress-bar');
+                if (data.duration_secs && data.duration_secs > 0) {
+                    const pct = Math.min(100, Math.max(0, (data.elapsed_secs / data.duration_secs) * 100));
+                    progressBar.style.width = pct + '%';
                 } else {
-                    qList.innerHTML = data.queue.map((t, idx) => `
-                        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/60 text-xs">
-                            <span class="text-slate-300 font-medium truncate max-w-sm">${idx + 1}. ${t}</span>
-                            <span class="text-slate-500 text-[10px]">待播</span>
-                        </div>
-                    `).join('');
+                    progressBar.style.width = data.status === 'Playing' ? '100%' : '0%';
                 }
+
+                // 播放模式
+                document.getElementById('mode-text').innerText = data.play_mode_cn || PLAY_MODE_NAMES[data.play_mode] || '列表循环';
+                document.getElementById('playlist-mode-badge').innerText = data.play_mode_cn || PLAY_MODE_NAMES[data.play_mode] || '列表循环';
+
+                // 音量滑块（避免拖动时被轮询覆盖）
+                if (!window.isAdjustingVolume) {
+                    document.getElementById('volume-slider').value = data.volume;
+                    document.getElementById('volume-label').innerText = data.volume + '%';
+                }
+
+                // 驻留歌单渲染
+                renderPlaylist(data.playlist || []);
+
             } catch (e) {
                 console.error('Fetch status error:', e);
             }
         }
 
-        async function submitPlay() {
+        function renderPlaylist(playlist) {
+            const countEl = document.getElementById('playlist-count');
+            countEl.innerText = `${playlist.length} 首曲目`;
+
+            const container = document.getElementById('playlist-container');
+            if (playlist.length === 0) {
+                container.innerHTML = '<div class="text-xs text-slate-400 py-8 text-center bg-slate-50/50 rounded-xl border border-dashed border-sky-100">歌单为空，快点一首喜欢的音乐吧~</div>';
+                return;
+            }
+
+            container.innerHTML = playlist.map(item => {
+                const isCurrent = item.is_current;
+                const rowClass = isCurrent
+                    ? 'bg-sky-50/90 border-sky-300/80 text-sky-900 shadow-sm'
+                    : 'bg-white/60 hover:bg-sky-50/40 border-slate-100/90 text-slate-700';
+
+                const iconOrIndex = isCurrent
+                    ? `<span class="flex items-center space-x-0.5 text-sky-500 w-6 justify-center">
+                         <span class="inline-block w-1 bg-sky-500 h-3 animate-pulse rounded-full"></span>
+                         <span class="inline-block w-1 bg-cyan-400 h-4 animate-pulse rounded-full" style="animation-delay: 150ms"></span>
+                         <span class="inline-block w-1 bg-sky-500 h-2 animate-pulse rounded-full" style="animation-delay: 300ms"></span>
+                       </span>`
+                    : `<span class="w-6 text-center text-xs font-mono text-slate-400 font-medium">${item.index}</span>`;
+
+                const durationStr = formatTime(item.duration_secs);
+
+                return `
+                    <div class="flex items-center justify-between p-3 rounded-xl border ${rowClass} transition group">
+                        <div class="flex items-center space-x-3 min-w-0 flex-1">
+                            ${iconOrIndex}
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-sm font-medium truncate max-w-[180px] sm:max-w-xs md:max-w-md ${isCurrent ? 'font-bold text-sky-950' : ''}">${escapeHtml(item.title)}</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-100/60 text-sky-700 font-medium whitespace-nowrap">${escapeHtml(item.origin)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-3 flex-shrink-0 ml-3">
+                            <span class="text-xs font-mono text-slate-400 hidden sm:inline">${durationStr}</span>
+                            <div class="flex items-center space-x-1">
+                                <button onclick="sendControl('playlist_jump', null, null, null, ${item.index})" title="播放此曲" class="p-1.5 rounded-lg hover:bg-sky-100 text-sky-600 transition active:scale-95">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                                </button>
+                                <button onclick="sendControl('playlist_top', null, null, null, ${item.index})" title="置顶为下一首" class="p-1.5 rounded-lg hover:bg-cyan-100 text-cyan-600 transition active:scale-95">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+                                </button>
+                                <button onclick="sendControl('playlist_remove', null, null, null, ${item.index})" title="从歌单删除" class="p-1.5 rounded-lg hover:bg-rose-100 text-rose-500 transition active:scale-95">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function togglePlayPause() {
+            if (currentState.status === 'Playing') {
+                sendControl('pause');
+            } else {
+                sendControl('resume');
+            }
+        }
+
+        function cyclePlayMode() {
+            const curIdx = PLAY_MODES.indexOf(currentState.play_mode);
+            const nextMode = PLAY_MODES[(curIdx + 1) % PLAY_MODES.length];
+            sendControl('mode', null, nextMode);
+        }
+
+        function toggleReplayGain() {
+            const nextState = !currentState.replay_gain_enabled;
+            sendControl('replay_gain', null, null, nextState);
+        }
+
+        function clearPlaylist() {
+            if (confirm('确定要清空全部播放歌单吗？')) {
+                sendControl('playlist_clear');
+            }
+        }
+
+        function handleInputKey(e) {
+            if (e.key === 'Enter') {
+                submitPlay(false);
+            }
+        }
+
+        async function submitPlay(playNow = false) {
             const input = document.getElementById('url-input');
             const url = input.value.trim();
-            if (!url) return;
+            if (!url) {
+                showToast('请输入有效的音频直链或搜索关键词', true);
+                return;
+            }
             try {
                 const res = await fetch('/api/play', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url: url })
+                    body: JSON.stringify({ url: url, play_now: playNow })
                 });
+                const resText = await res.text();
                 if (!res.ok) {
-                    const errText = await res.text();
-                    alert('点歌失败: ' + errText);
+                    showToast('点歌失败: ' + resText, true);
                     return;
                 }
+                showToast(resText || '点歌请求已提交');
                 input.value = '';
                 fetchStatus();
             } catch (e) {
-                alert('点歌请求发送失败: ' + e);
+                showToast('网络请求错误: ' + e, true);
             }
         }
 
-        async function sendControl(action, value) {
+        async function sendControl(action, value = null, mode = null, enabled = null, index = null) {
             try {
-                await fetch('/api/control', {
+                const payload = { action };
+                if (value !== null) payload.value = value;
+                if (mode !== null) payload.mode = mode;
+                if (enabled !== null) payload.enabled = enabled;
+                if (index !== null) payload.index = index;
+
+                const res = await fetch('/api/control', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ action: action, value: value })
+                    body: JSON.stringify(payload)
                 });
+                const msg = await res.text();
+                if (!res.ok) {
+                    showToast('操作失败: ' + msg, true);
+                    return;
+                }
+                if (msg) showToast(msg);
                 fetchStatus();
             } catch (e) {
-                console.error(e);
+                showToast('请求异常: ' + e, true);
             }
         }
 
         let volTimeout = null;
         function onVolumeChange(val) {
+            window.isAdjustingVolume = true;
             document.getElementById('volume-label').innerText = val + '%';
             clearTimeout(volTimeout);
             volTimeout = setTimeout(() => {
+                window.isAdjustingVolume = false;
                 sendControl('volume', parseInt(val));
-            }, 100);
+            }, 120);
         }
 
-        setInterval(fetchStatus, 1500);
+        // 定时轮询 (每 1000ms)
+        setInterval(fetchStatus, 1000);
         fetchStatus();
     </script>
 </body>
