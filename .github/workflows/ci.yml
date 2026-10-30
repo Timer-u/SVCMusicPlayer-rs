@@ -28,9 +28,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (Nightly)
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust toolchain (Nightly 2026-08-07)
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-08-07
           targets: ${{ matrix.target }}
 
       - name: Rust Cache

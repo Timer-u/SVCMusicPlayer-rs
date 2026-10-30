@@ -19,7 +19,7 @@
 ### 1. 编译或下载
 
 #### 从源码编译
-确保已安装 Rust Nightly 工具链（由于底层 Azalea/simdnbt 依赖的 portable_simd 特性需要）：
+确保已安装 Rust Nightly 工具链（推荐 `nightly-2026-08-07`，根目录已包含 `rust-toolchain.toml` 自动接管；因底层 Azalea/simdnbt 依赖实验性 SIMD 特性）：
 
 ```bash
 # 编译 Release 高性能版本
