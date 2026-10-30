@@ -5,10 +5,14 @@ use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tracing::{debug, info};
 
+use crate::audio::loudness::LoudnessProcessor;
+
 pub struct AudioDecoder {
     ffmpeg_child: Option<Child>,
     ffmpeg_stdout: Option<tokio::process::ChildStdout>,
     symphonia_samples: Option<std::vec::IntoIter<i16>>,
+    pub duration_secs: Option<u64>,
+    pub precomputed_gain_db: Option<f32>,
 }
 
 impl AudioDecoder {
@@ -77,25 +81,57 @@ impl AudioDecoder {
                 anyhow::anyhow!("无法获取 FFmpeg 标准输出管道")
             })?;
 
+            // 针对本地文件尝试探针快速提取时长与 ReplayGain 元数据
+            let (mut duration_secs, mut precomputed_gain_db) = (None, None);
+            if is_local_file {
+                let (d, g) = Self::probe_local_file_metadata(source);
+                duration_secs = d;
+                precomputed_gain_db = g;
+            }
+
             return Ok(Self {
                 ffmpeg_child: Some(child),
                 ffmpeg_stdout: Some(stdout),
                 symphonia_samples: None,
+                duration_secs,
+                precomputed_gain_db,
             });
         }
 
         // 纯 Rust Symphonia 解码通道
         info!("[Decoder] 使用纯 Rust (Symphonia) 解码: {}", source);
-        let samples = tokio::task::spawn_blocking({
-            let src = source.to_string();
-            let headers = header_map;
-            move || Self::decode_with_symphonia(&src, is_local_file, &headers)
+
+        let downloaded_bytes = if !is_local_file {
+            let mut client_builder = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120));
+            if let Some(ua) = header_map.get("User-Agent") {
+                client_builder = client_builder.user_agent(ua);
+            }
+            let client = client_builder.build()?;
+            let mut req = client.get(source);
+            for (k, v) in &header_map {
+                req = req.header(k, v);
+            }
+            let resp = req.send().await?;
+            if !resp.status().is_success() {
+                anyhow::bail!("下载网络音频流失败 (HTTP {})", resp.status());
+            }
+            Some(resp.bytes().await?)
+        } else {
+            None
+        };
+
+        let src = source.to_string();
+        let (samples, duration_secs, precomputed_gain_db) = tokio::task::spawn_blocking(move || {
+            Self::decode_with_symphonia(&src, is_local_file, downloaded_bytes)
         }).await??;
 
         Ok(Self {
             ffmpeg_child: None,
             ffmpeg_stdout: None,
             symphonia_samples: Some(samples.into_iter()),
+            duration_secs,
+            precomputed_gain_db,
         })
     }
 
@@ -156,11 +192,78 @@ impl AudioDecoder {
         Ok(None)
     }
 
+    fn extract_replaygain_from_tags(tags: &[symphonia::core::meta::Tag]) -> Option<f32> {
+        for tag in tags {
+            let key = tag.key.to_uppercase();
+            if key.contains("REPLAYGAIN_TRACK_GAIN") || key.contains("REPLAYGAIN_ALBUM_GAIN") {
+                if let Some(g) = LoudnessProcessor::parse_replaygain_tag(&tag.value.to_string()) {
+                    return Some(g);
+                }
+            }
+        }
+        None
+    }
+
+    fn probe_local_file_metadata(path_str: &str) -> (Option<u64>, Option<f32>) {
+        use symphonia::core::formats::FormatOptions;
+        use symphonia::core::io::MediaSourceStream;
+        use symphonia::core::meta::MetadataOptions;
+        use symphonia::core::probe::Hint;
+
+        let file = match std::fs::File::open(path_str) {
+            Ok(f) => f,
+            Err(_) => return (None, None),
+        };
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        let mut hint = Hint::new();
+        if let Some(ext) = Path::new(path_str).extension().and_then(|s| s.to_str()) {
+            hint.with_extension(ext);
+        }
+
+        let mut probed = match symphonia::default::get_probe().format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        ) {
+            Ok(p) => p,
+            Err(_) => return (None, None),
+        };
+
+        let mut duration_secs = None;
+        if let Some(track) = probed
+            .format
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+        {
+            if let (Some(n_frames), Some(sample_rate)) =
+                (track.codec_params.n_frames, track.codec_params.sample_rate)
+            {
+                if sample_rate > 0 {
+                    duration_secs = Some(n_frames / sample_rate as u64);
+                }
+            }
+        }
+
+        let mut gain_db = None;
+        if let Some(meta) = probed.metadata.get().as_ref().and_then(|m| m.current()) {
+            gain_db = Self::extract_replaygain_from_tags(meta.tags());
+        }
+        if gain_db.is_none() {
+            if let Some(meta) = probed.format.metadata().current() {
+                gain_db = Self::extract_replaygain_from_tags(meta.tags());
+            }
+        }
+
+        (duration_secs, gain_db)
+    }
+
     fn decode_with_symphonia(
         source: &str,
         is_local_file: bool,
-        headers: &HashMap<String, String>,
-    ) -> anyhow::Result<Vec<i16>> {
+        downloaded_bytes: Option<bytes::Bytes>,
+    ) -> anyhow::Result<(Vec<i16>, Option<u64>, Option<f32>)> {
         use symphonia::core::audio::SampleBuffer;
         use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
         use symphonia::core::formats::FormatOptions;
@@ -168,32 +271,17 @@ impl AudioDecoder {
         use symphonia::core::meta::MetadataOptions;
         use symphonia::core::probe::Hint;
 
-        let mss = if is_local_file {
+        let mss = if let Some(b) = downloaded_bytes {
+            let cursor = std::io::Cursor::new(b);
+            MediaSourceStream::new(Box::new(cursor), Default::default())
+        } else if is_local_file {
             let file = std::fs::File::open(source)?;
             MediaSourceStream::new(Box::new(file), Default::default())
         } else {
-            // 下载整个音频到内存 (设置 120 秒超时)
-            let mut client_builder = reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(120));
-            if let Some(ua) = headers.get("User-Agent") {
-                client_builder = client_builder.user_agent(ua);
-            }
-            let client = client_builder.build()?;
-            let mut req = client.get(source);
-            for (k, v) in headers {
-                req = req.header(k, v);
-            }
-            let resp = req.send()?;
-            if !resp.status().is_success() {
-                anyhow::bail!("下载网络音频流失败 (HTTP {})", resp.status());
-            }
-            let bytes = resp.bytes()?;
-            let cursor = std::io::Cursor::new(bytes);
-            MediaSourceStream::new(Box::new(cursor), Default::default())
+            anyhow::bail!("未提供本地文件或下载字节");
         };
 
         let mut hint = Hint::new();
-        // 剔除 URL 中的 Query 参数以正确获取文件扩展名
         let clean_path = source.split('?').next().unwrap_or(source);
         if let Some(ext) = Path::new(clean_path).extension().and_then(|s| s.to_str()) {
             let lower_ext = ext.to_lowercase();
@@ -204,14 +292,25 @@ impl AudioDecoder {
             }
         }
 
-        let probed = symphonia::default::get_probe().format(
+        let mut probed = symphonia::default::get_probe().format(
             &hint,
             mss,
             &FormatOptions::default(),
             &MetadataOptions::default(),
         )?;
 
+        let mut precomputed_gain_db = None;
+        if let Some(meta) = probed.metadata.get().as_ref().and_then(|m| m.current()) {
+            precomputed_gain_db = Self::extract_replaygain_from_tags(meta.tags());
+        }
+
         let mut format = probed.format;
+        if precomputed_gain_db.is_none() {
+            if let Some(meta) = format.metadata().current() {
+                precomputed_gain_db = Self::extract_replaygain_from_tags(meta.tags());
+            }
+        }
+
         let track = format
             .tracks()
             .iter()
@@ -259,8 +358,7 @@ impl AudioDecoder {
             }
         }
 
-        // 简易线性重采样至 48000Hz (若音频源不是 48kHz)
-        if sample_rate != 48000 && !raw_mono_samples.is_empty() {
+        let final_samples = if sample_rate != 48000 && !raw_mono_samples.is_empty() {
             debug!("[Decoder] 重采样从 {}Hz 至 48000Hz", sample_rate);
             let ratio = 48000.0 / sample_rate as f64;
             let target_len = (raw_mono_samples.len() as f64 * ratio) as usize;
@@ -271,10 +369,22 @@ impl AudioDecoder {
                     resampled.push(raw_mono_samples[src_idx]);
                 }
             }
-            return Ok(resampled);
+            resampled
+        } else {
+            raw_mono_samples
+        };
+
+        let duration_secs = if !final_samples.is_empty() {
+            Some((final_samples.len() / 48000) as u64)
+        } else {
+            None
+        };
+
+        if precomputed_gain_db.is_none() && !final_samples.is_empty() {
+            precomputed_gain_db = LoudnessProcessor::analyze_static_gain_db(&final_samples, -16.0);
         }
 
-        Ok(raw_mono_samples)
+        Ok((final_samples, duration_secs, precomputed_gain_db))
     }
 }
 

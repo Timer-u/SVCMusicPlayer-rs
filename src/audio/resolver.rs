@@ -6,10 +6,13 @@ use tracing::{info, warn};
 #[derive(Debug, Clone)]
 pub struct ResolvedMedia {
     pub title: String,
+    pub raw_query: String,
     pub source_url_or_path: String,
     pub is_local_file: bool,
     pub http_headers: Option<HashMap<String, String>>,
     pub source_bitrate_kbps: Option<f64>,
+    pub duration_secs: Option<u64>,
+    pub replay_gain_db: Option<f32>,
 }
 
 /// 安全解码外部子进程的标准输出（优先 UTF-8，自动支持 Windows 中文环境下的 GBK / GB18030 回退）
@@ -39,17 +42,20 @@ impl MediaResolver {
             info!("[Resolver] 找到本地音频文件: {} -> {:?}", input, found_path);
             return Ok(ResolvedMedia {
                 title,
+                raw_query: input.to_string(),
                 source_url_or_path: found_path.to_string_lossy().to_string(),
                 is_local_file: true,
                 http_headers: None,
                 source_bitrate_kbps: None,
+                duration_secs: None,
+                replay_gain_db: None,
             });
         }
 
         // 2. 判断是否为网易云音乐 (ID / 链接 / 快捷前缀，参照 TartaricAcid/NetMusic 处理)
         if let Some(song_id) = Self::parse_netease_id(input) {
             info!("[Resolver] 识别到网易云音乐歌曲 ID: {}", song_id);
-            return Self::resolve_netease_song(song_id).await;
+            return Self::resolve_netease_song(song_id, input).await;
         }
 
         // 3. 判断是否为 Bilibili BV 号 / AV 号，若是则规范化为完整 Bilibili 链接
@@ -90,10 +96,13 @@ impl MediaResolver {
                 .to_string();
             return Ok(ResolvedMedia {
                 title: filename,
+                raw_query: input.to_string(),
                 source_url_or_path: normalized_input,
                 is_local_file: false,
                 http_headers: None,
                 source_bitrate_kbps: None,
+                duration_secs: None,
+                replay_gain_db: None,
             });
         }
 
@@ -171,6 +180,11 @@ impl MediaResolver {
                 .and_then(|v| v.as_f64())
                 .or_else(|| parsed.get("tbr").and_then(|v| v.as_f64()));
 
+            let duration_secs = parsed
+                .get("duration")
+                .and_then(|v| v.as_f64())
+                .map(|d| d.round() as u64);
+
             // 检查 yt-dlp 是否已将音频直接下载并缓存到本地
             let filename_opt = parsed
                 .get("filename")
@@ -197,10 +211,13 @@ impl MediaResolver {
                 );
                 return Ok(ResolvedMedia {
                     title,
+                    raw_query: input.to_string(),
                     source_url_or_path: cached_file,
                     is_local_file: true,
                     http_headers: None,
                     source_bitrate_kbps,
+                    duration_secs,
+                    replay_gain_db: None,
                 });
             }
 
@@ -237,10 +254,13 @@ impl MediaResolver {
             );
             return Ok(ResolvedMedia {
                 title,
+                raw_query: input.to_string(),
                 source_url_or_path: stream_url,
                 is_local_file: false,
                 http_headers: if headers.is_empty() { None } else { Some(headers) },
                 source_bitrate_kbps,
+                duration_secs,
+                replay_gain_db: None,
             });
         }
 
@@ -249,10 +269,13 @@ impl MediaResolver {
             warn!("[Resolver] 未检测到 yt-dlp，尝试将输入作为直接音频流处理: {}", normalized_input);
             return Ok(ResolvedMedia {
                 title: "网络音频流".to_string(),
+                raw_query: input.to_string(),
                 source_url_or_path: normalized_input,
                 is_local_file: false,
                 http_headers: None,
                 source_bitrate_kbps: None,
+                duration_secs: None,
+                replay_gain_db: None,
             });
         }
 
@@ -294,7 +317,7 @@ impl MediaResolver {
     }
 
     /// 解析网易云歌曲详细元数据（歌曲名、歌手）与直链音频流（参照 TartaricAcid/NetMusic）
-    async fn resolve_netease_song(id: u64) -> anyhow::Result<ResolvedMedia> {
+    async fn resolve_netease_song(id: u64, raw_query: &str) -> anyhow::Result<ResolvedMedia> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(6))
             .build()?;
@@ -303,6 +326,7 @@ impl MediaResolver {
         let detail_url = format!("http://music.163.com/api/song/detail/?id={}&ids=%5B{}%5D", id, id);
         let mut title = format!("网易云音乐 - ID:{}", id);
         let mut source_bitrate_kbps = Some(320.0); // 默认高品质码率
+        let mut duration_secs = None;
 
         if let Ok(resp) = client.get(&detail_url)
             .header("Referer", "http://music.163.com/")
@@ -327,6 +351,12 @@ impl MediaResolver {
 
                             let fee = song["fee"].as_i64().unwrap_or(0);
                             let is_vip = fee == 1 || fee == 4;
+
+                            if let Some(ms) = song.get("duration").and_then(|d| d.as_u64()) {
+                                duration_secs = Some(ms / 1000);
+                            } else if let Some(ms) = song.get("dt").and_then(|d| d.as_u64()) {
+                                duration_secs = Some(ms / 1000);
+                            }
 
                             if let Some(br) = song.get("h").and_then(|h| h.get("br")).and_then(|b| b.as_f64()) {
                                 source_bitrate_kbps = Some(br / 1000.0);
@@ -358,10 +388,13 @@ impl MediaResolver {
         );
         Ok(ResolvedMedia {
             title,
+            raw_query: raw_query.to_string(),
             source_url_or_path: stream_url,
             is_local_file: false,
             http_headers: None,
             source_bitrate_kbps,
+            duration_secs,
+            replay_gain_db: None,
         })
     }
 
