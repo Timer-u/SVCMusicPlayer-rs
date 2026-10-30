@@ -53,8 +53,16 @@ pub struct VoiceConfig {
     pub override_port: u16,
     #[serde(default = "default_voice_bitrate")]
     pub bitrate_kbps: u32,
+    #[serde(default = "default_true")]
+    pub replay_gain: bool,
+    #[serde(default = "default_target_lufs")]
+    pub target_lufs: f32,
     #[serde(default)]
     pub group: GroupConfig,
+}
+
+fn default_target_lufs() -> f32 {
+    -16.0
 }
 
 fn default_voice_bitrate() -> u32 {

@@ -38,6 +38,10 @@ override_host = ""
 override_port = 0
 # Opus 音频推流码率 (单位: kbps，默认 96 kbps；推荐 64~160 kbps，单声道音乐推荐 96 或 128)
 bitrate_kbps = 96
+# 是否启用 ReplayGain 智能响度平衡与动态范围防爆音限幅 (默认 true)
+replay_gain = true
+# 目标综合响度标准 (单位: LUFS，默认 -16.0，推荐范围 -20.0 ~ -14.0)
+target_lufs = -16.0
 
 [voice.group]
 # 是否在进服时自动创建或加入 SVC 语音群组（进群后全服群成员无视距离与维度收听）

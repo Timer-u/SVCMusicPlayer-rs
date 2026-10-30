@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.40", features = ["full"] }
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "net", "time", "process", "sync", "signal", "io-util", "fs"] }
 tokio-util = "0.7"
 
 # Cryptography (AES-128-GCM for Simple Voice Chat)
@@ -39,10 +39,10 @@ azalea-buf = "0.16.0"
 
 # Audio decoding & encoding
 rusty-opus = "0.9"
-symphonia = { version = "0.5", features = ["all"] }
+symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "flac", "ogg", "vorbis", "pcm", "wav", "opt-simd"] }
 
 # HTTP & Web console
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "blocking"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
 axum = { version = "0.7", features = ["ws"] }
 rust-embed = "8.5"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
@@ -51,3 +51,23 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
+
+[profile.dev]
+opt-level = 0
+debug = 1
+incremental = true
+
+# 对编解码计算密集型第三方库在 dev/test 下开启优化，保证测试与开发运行流畅且不拖慢主包增量编译
+[profile.dev.package.symphonia]
+opt-level = 2
+[profile.dev.package.rusty-opus]
+opt-level = 2
+[profile.dev.package.aes-gcm]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+strip = true
+panic = "abort"
